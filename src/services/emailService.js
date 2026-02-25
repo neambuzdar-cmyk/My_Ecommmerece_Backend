@@ -1,22 +1,82 @@
 const nodemailer = require('nodemailer');
 
-// Create transporter
+// Create transporter with robust configuration to fix connection issues
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false, // Use TLS
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
-  }
+  },
+  // Add these options to prevent timeout and IPv6 issues
+  connectionTimeout: 60000, // 60 seconds
+  greetingTimeout: 30000,   // 30 seconds
+  socketTimeout: 60000,     // 60 seconds
+  tls: {
+    rejectUnauthorized: false, // Allow self-signed certificates
+    ciphers: 'SSLv3'
+  },
+  // Force IPv4 to avoid IPv6 connection issues
+  family: 4
 });
 
-// Verify connection
-transporter.verify((error, success) => {
-  if (error) {
-    console.log('❌ SMTP Error:', error);
-  } else {
-    console.log('✅ SMTP Server is ready');
+// Enhanced verification with retry logic
+const verifyConnection = async (retryCount = 0) => {
+  return new Promise((resolve, reject) => {
+    transporter.verify((error, success) => {
+      if (error) {
+        console.log('❌ SMTP Error Details:', {
+          message: error.message,
+          code: error.code,
+          command: error.command,
+          retryCount
+        });
+        
+        // Retry logic for common errors
+        if (retryCount < 3 && (error.code === 'ESOCKET' || error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED')) {
+          console.log(`⚠️ Retrying SMTP connection... (${retryCount + 1}/3)`);
+          setTimeout(() => verifyConnection(retryCount + 1).then(resolve).catch(reject), 3000);
+        } else {
+          console.log('❌ SMTP verification failed after retries');
+          // Don't reject - let the app continue but log error
+          resolve(false);
+        }
+      } else {
+        console.log('✅ SMTP Server is ready');
+        resolve(true);
+      }
+    });
+  });
+};
+
+// Initialize connection check
+verifyConnection();
+
+// Helper function to ensure email is sent with retry logic
+const sendEmailWithRetry = async (mailOptions, retryCount = 0) => {
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`✅ Email sent successfully to ${mailOptions.to}`);
+    return info;
+  } catch (error) {
+    console.log(`❌ Failed to send email (attempt ${retryCount + 1}):`, {
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      error: error.message,
+      code: error.code
+    });
+    
+    // Retry up to 2 times for timeout/socket errors
+    if (retryCount < 2 && (error.code === 'ESOCKET' || error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED')) {
+      console.log(`🔄 Retrying email send... (${retryCount + 1}/2)`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return sendEmailWithRetry(mailOptions, retryCount + 1);
+    }
+    
+    throw error;
   }
-});
+};
 
 // Send verification email with 6-digit code
 const sendVerificationEmail = async (email, code, name) => {
@@ -74,12 +134,12 @@ const sendVerificationEmail = async (email, code, name) => {
     `
   };
   
-  return await transporter.sendMail(mailOptions);
+  return await sendEmailWithRetry(mailOptions);
 };
 
 // Send password reset email
 const sendPasswordResetEmail = async (email, token, name) => {
-  const resetUrl = `http://localhost:3000/reset-password/${token}`;
+  const resetUrl = `https://splendorous-quokka-789382.netlify.app/reset-password/${token}`; // Updated to your Netlify URL
   
   const mailOptions = {
     from: `"LUXEMART Security" <${process.env.SMTP_USER}>`,
@@ -134,7 +194,7 @@ const sendPasswordResetEmail = async (email, token, name) => {
     `
   };
   
-  return await transporter.sendMail(mailOptions);
+  return await sendEmailWithRetry(mailOptions);
 };
 
 // Send login verification code (for new IP)
@@ -217,7 +277,7 @@ const sendLoginVerificationCode = async (email, code, name, ipInfo) => {
     `
   };
   
-  return await transporter.sendMail(mailOptions);
+  return await sendEmailWithRetry(mailOptions);
 };
 
 // Send welcome email after verification
@@ -260,7 +320,7 @@ const sendWelcomeEmail = async (email, name) => {
             </ul>
             <p>Start exploring our collection today!</p>
             <div style="text-align: center; margin: 30px 0;">
-              <a href="http://localhost:3000/products" style="display: inline-block; background: #000; color: white; text-decoration: none; padding: 12px 30px; border-radius: 5px; font-weight: bold;">Shop Now</a>
+              <a href="https://splendorous-quokka-789382.netlify.app/shop" style="display: inline-block; background: #000; color: white; text-decoration: none; padding: 12px 30px; border-radius: 5px; font-weight: bold;">Shop Now</a>
             </div>
           </div>
           <div class="footer">
@@ -272,7 +332,7 @@ const sendWelcomeEmail = async (email, name) => {
     `
   };
   
-  return await transporter.sendMail(mailOptions);
+  return await sendEmailWithRetry(mailOptions);
 };
 
 module.exports = {
