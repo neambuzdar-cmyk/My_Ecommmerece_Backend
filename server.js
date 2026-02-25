@@ -3,7 +3,7 @@ const app = require('./src/app');
 
 // Get port from environment or use default
 const PORT = process.env.PORT || 5000;
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/ecommerce';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://naeem:Naeem12345?@cluster0.pjjlwte.mongodb.net/My_Ecommmerece_DataBase?retryWrites=true&w=majority&appName=Cluster0';
 
 // Connect to MongoDB
 mongoose.connect(MONGODB_URI)
